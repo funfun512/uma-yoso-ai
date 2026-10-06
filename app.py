@@ -251,31 +251,195 @@ def same_day_bias(date, venue, current_race_id):
 
 
 def score_horse(h, track, bias):
-    # Transparent 100-point framework. Missing evidence = 0, never guessed.
-    p = {"基礎能力・近走":0,"距離適性":0,"コース適性":0,"騎手":0,"枠順":0,"脚質・展開":0,"当日バイアス":0,"芝荒れ・走行位置":0,"馬場・含水率":0,"天候":0,"過去傾向":0,"オッズ妙味":0}
-    tags=[]
-    odds=h.get("odds_num")
-    style=h.get("style")
-    if h.get("jockey"): p["騎手"] = 4
-    if h.get("trainer"): p["コース適性"] = 2
+    """
+    競馬予想AI 100点モデル
+    ※取得できていない情報は推測せず0点
+    """
+
+    p = {
+        "基礎能力・近走": 0,
+        "距離適性": 0,
+        "コース適性": 0,
+        "騎手": 0,
+        "枠順": 0,
+        "脚質・展開": 0,
+        "当日バイアス": 0,
+        "芝荒れ・走行位置": 0,
+        "馬場・含水率": 0,
+        "天候": 0,
+        "過去傾向": 0,
+        "オッズ妙味": 0,
+    }
+
+    tags = []
+
+    odds = h.get("odds_num")
+    style = h.get("style")
+
+    # --------------------------------------------------
+    # ① 基礎能力・近走 20点
+    # --------------------------------------------------
+    recent_score = h.get("recent_form_score")
+    if isinstance(recent_score, (int, float)):
+        p["基礎能力・近走"] = max(0, min(20, recent_score))
+
+    # --------------------------------------------------
+    # ② 距離適性 10点
+    # --------------------------------------------------
+    distance_score = h.get("distance_score")
+    if isinstance(distance_score, (int, float)):
+        p["距離適性"] = max(0, min(10, distance_score))
+
+    # --------------------------------------------------
+    # ③ コース適性 10点
+    # --------------------------------------------------
+    course_score = h.get("course_score")
+    if isinstance(course_score, (int, float)):
+        p["コース適性"] = max(0, min(10, course_score))
+
+    # --------------------------------------------------
+    # ④ 騎手 8点
+    # --------------------------------------------------
+    if h.get("jockey"):
+        jockey_score = h.get("jockey_score")
+        if isinstance(jockey_score, (int, float)):
+            p["騎手"] = max(0, min(8, jockey_score))
+        else:
+            # 騎手名だけ取得できている場合は最低限の加点
+            p["騎手"] = 4
+
+    # --------------------------------------------------
+    # ⑤ 枠順 5点
+    # --------------------------------------------------
     try:
-        n=int(re.search(r"\d+", h.get("number","")).group())
-        p["枠順"] = 4 if n in (6,7,8) else 2
-    except Exception: pass
+        n = int(re.search(r"\d+", h.get("number", "")).group())
+
+        # 枠順評価は後で当日の内外バイアスと連動させる
+        if n in (1, 2):
+            p["枠順"] = 3
+        elif n in (3, 4, 5, 6):
+            p["枠順"] = 4
+        elif n in (7, 8):
+            p["枠順"] = 3
+
+    except Exception:
+        pass
+
+    # --------------------------------------------------
+    # ⑥ 脚質・展開 12点
+    # --------------------------------------------------
+    pace_score = h.get("pace_score")
+    if isinstance(pace_score, (int, float)):
+        p["脚質・展開"] = max(0, min(12, pace_score))
+
+    # 当日のバイアスとは別に、
+    # レースそのものの展開予測を評価
+    if style in ("逃げ", "先行"):
+        if bias.get("stalk", 0) > bias.get("closer", 0):
+            p["脚質・展開"] += 4
+            p["脚質・展開"] = min(12, p["脚質・展開"])
+            tags.append("前有利の展開想定")
+
+    elif style in ("差し", "追込"):
+        if bias.get("closer", 0) > bias.get("stalk", 0):
+            p["脚質・展開"] += 4
+            p["脚質・展開"] = min(12, p["脚質・展開"])
+            tags.append("差し有利の展開想定")
+
+    # --------------------------------------------------
+    # ⑦ 当日バイアス 8点
+    # --------------------------------------------------
     if style:
-        if style in ("逃げ","先行") and isinstance(bias.get("stalk"),int) and bias.get("stalk",0)>bias.get("closer",0):
-            p["脚質・展開"] += 6; tags.append("前有利と一致")
-        if style in ("差し","追込") and isinstance(bias.get("closer"),int) and bias.get("closer",0)>bias.get("stalk",0):
-            p["当日バイアス"] += 6; tags.append("差し有利と一致")
-    if track.get("condition") in ("重","不良") and style in ("差し","追込"):
-        p["馬場・含水率"] += 2
-        tags.append("道悪適性チェック")
-    if odds is not None:
-        if odds >= 15: p["オッズ妙味"] = 5; tags.append("高オッズ妙味")
-        elif odds >= 8: p["オッズ妙味"] = 3; tags.append("妙味あり")
-        elif odds <= 3: p["オッズ妙味"] = -2; tags.append("過剰人気警戒")
-    score = max(0,min(100,50+sum(p.values())))
-    grade = "S" if score>=85 else "A" if score>=75 else "B" if score>=65 else "C"
+        stalk = bias.get("stalk", 0)
+        closer = bias.get("closer", 0)
+
+        if style in ("逃げ", "先行") and stalk > closer:
+            p["当日バイアス"] = 8
+            tags.append("当日前有利")
+
+        elif style in ("差し", "追込") and closer > stalk:
+            p["当日バイアス"] = 8
+            tags.append("当日差し有利")
+
+    # --------------------------------------------------
+    # ⑧ 芝荒れ・走行位置 7点
+    # --------------------------------------------------
+    lane_score = h.get("lane_score")
+    if isinstance(lane_score, (int, float)):
+        p["芝荒れ・走行位置"] = max(0, min(7, lane_score))
+
+    # --------------------------------------------------
+    # ⑨ 馬場・含水率 5点
+    # --------------------------------------------------
+    going_score = h.get("going_score")
+    if isinstance(going_score, (int, float)):
+        p["馬場・含水率"] = max(0, min(5, going_score))
+    else:
+        condition = track.get("condition")
+
+        # 道悪の場合だけ、脚質による簡易補正
+        # ※馬自身の道悪適性データが取れたら後で置き換える
+        if condition in ("重", "不良") and style in ("差し", "追込"):
+            p["馬場・含水率"] = 1
+            tags.append("道悪・差し脚質")
+
+    # --------------------------------------------------
+    # ⑩ 天候 5点
+    # --------------------------------------------------
+    weather_score = h.get("weather_score")
+    if isinstance(weather_score, (int, float)):
+        p["天候"] = max(0, min(5, weather_score))
+
+    # --------------------------------------------------
+    # ⑪ 過去傾向 5点
+    # --------------------------------------------------
+    trend_score = h.get("trend_score")
+    if isinstance(trend_score, (int, float)):
+        p["過去傾向"] = max(0, min(5, trend_score))
+
+    # --------------------------------------------------
+    # ⑫ オッズ妙味 5点
+    # --------------------------------------------------
+    if isinstance(odds, (int, float)):
+        value_score = h.get("value_score")
+
+        if isinstance(value_score, (int, float)):
+            p["オッズ妙味"] = max(-5, min(5, value_score))
+
+        else:
+            # 暫定的な妙味判定
+            if odds >= 15:
+                p["オッズ妙味"] = 5
+                tags.append("高オッズ妙味")
+            elif odds >= 8:
+                p["オッズ妙味"] = 3
+                tags.append("妙味あり")
+            elif odds <= 3:
+                p["オッズ妙味"] = -2
+                tags.append("過剰人気警戒")
+
+    # --------------------------------------------------
+    # 合計
+    # --------------------------------------------------
+    score = sum(p.values())
+
+    # 0〜100に収める
+    score = max(0, min(100, score))
+
+    # --------------------------------------------------
+    # 評価ランク
+    # --------------------------------------------------
+    if score >= 85:
+        grade = "S"
+    elif score >= 75:
+        grade = "A"
+    elif score >= 65:
+        grade = "B"
+    elif score >= 50:
+        grade = "C"
+    else:
+        grade = "D"
+
     return score, grade, tags, p
 
 
