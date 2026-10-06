@@ -125,7 +125,78 @@ def nar_races(date, venue):
             continue
 
     return found
+def parse_nar_odds(race_id):
+    m = re.fullmatch(
+        r"nar:(\d{8}):(\d{2}):(\d{2})",
+        race_id
+    )
 
+    if not m:
+        return {}
+
+    date, baba_code, race_no = m.groups()
+
+    url = "https://www.keiba.go.jp/KeibaWebSP_IPAT/TodayRaceInfo/S_OddsTan_ipat"
+
+    params = {
+        "k_babaCode": baba_code,
+        "k_raceDate": f"{date[:4]}/{date[4:6]}/{date[6:8]}",
+        "k_raceNo": race_no,
+    }
+
+    try:
+        r = requests.get(
+            url,
+            params=params,
+            headers=HEADERS,
+            timeout=20
+        )
+        r.raise_for_status()
+
+        soup = BeautifulSoup(
+            r.text,
+            "html.parser"
+        )
+
+        odds = {}
+
+        for row in soup.select("tr"):
+            cells = [
+                clean(cell)
+                for cell in row.select("th, td")
+            ]
+
+            if len(cells) < 2:
+                continue
+
+            number = None
+            odd = None
+
+            for cell in cells:
+                if re.fullmatch(r"\d{1,2}", cell):
+                    value = int(cell)
+                    if 1 <= value <= 18:
+                        number = value
+
+                m_odd = re.fullmatch(
+                    r"\d+(?:\.\d+)?",
+                    cell
+                )
+
+                if m_odd:
+                    value = float(cell)
+
+                    if value >= 1.0:
+                        odd = value
+
+            if number is not None and odd is not None:
+                odds[number] = odd
+
+        return odds
+
+    except Exception as e:
+        print("[parse_nar_odds error]", repr(e))
+        return {}
 
 def parse_nar_race(race_id):
     """
@@ -191,7 +262,7 @@ def parse_nar_race(race_id):
             break
 
     if target_table:
-
+        odds_map = parse_nar_odds(race_id)
         rows = target_table.select("tr")
 
         for row in rows:
@@ -288,7 +359,8 @@ def parse_nar_race(race_id):
                     # 騎手候補
                     if not jockey:
                         jockey = cell
-
+　　　　　　　　odds_value = odds_map.get(int(number)) if str(number).isdigit() else None
+            
             horses.append({
                 "waku": waku,
                 "number": number,
@@ -296,8 +368,8 @@ def parse_nar_race(race_id):
                 "horse_id": "",
                 "jockey": jockey,
                 "trainer": "",
-                "odds": "",
-                "odds_num": None,
+                "odds": f"{odds_value:g}" if odds_value is not None else "",
+　　　　　　　　　　　"odds_num": odds_value,
                 "sex_age": sex_age,
                 "weight": weight,
                 "style": "",
