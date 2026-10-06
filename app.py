@@ -1041,8 +1041,8 @@ def races_api():
                 "status": "racecard_available" if races else "scheduled"
             })
 
-    races=netkeiba_races(date,venue)
-    if not races:
+        races=netkeiba_races(date,venue)
+        if not races:
             return jsonify({"date":date,"venue":venue,"races":[],**jra_schedule_status(date,venue)})
         return jsonify({"date":date,"venue":venue,"races":races,"status":"racecard_available"})
     except Exception as e:
