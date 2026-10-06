@@ -1020,55 +1020,176 @@ def parse_past5(race_id):
 
 def recent_form_score(past5):
     """
-    近5走を20点満点で評価。
-    情報がない場合は0点。
+    近5走を20点満点で評価する。
+
+    配点
+    ・着順       10点
+    ・近走の勢い   4点
+    ・安定性       3点
+    ・多頭数実績   3点
+    合計20点
     """
+
     if not past5:
         return 0
 
-    scores = []
+    races = past5[:5]
 
-    for race in past5[:5]:
+    # -------------------------
+    # ① 着順：10点
+    # -------------------------
+    finish_points = {
+        1: 4.0,
+        2: 3.5,
+        3: 3.0,
+        4: 2.5,
+        5: 2.0,
+        6: 1.5,
+        7: 1.0,
+        8: 0.5,
+    }
+
+    finish_scores = []
+
+    for race in races:
         finish = race.get("finish")
 
-        if not isinstance(finish, int):
-            continue
-
-        if finish == 1:
-            s = 4.0
-        elif finish == 2:
-            s = 3.5
-        elif finish == 3:
-            s = 3.0
-        elif finish <= 5:
-            s = 2.5
-        elif finish <= 8:
-            s = 1.5
-        elif finish <= 12:
-            s = 0.5
+        if finish is None:
+            finish_scores.append(0)
+        elif finish in finish_points:
+            finish_scores.append(finish_points[finish])
         else:
-            s = 0
-
-        scores.append(s)
-
-    if not scores:
-        return 0
+            finish_scores.append(0)
 
     # 直近のレースを少し重視
-    weights = [1.30, 1.15, 1.00, 0.90, 0.80]
+    weights = [1.0, 0.9, 0.8, 0.7, 0.6]
 
-    total = 0
+    weighted_finish = 0
     weight_total = 0
 
-    for i, s in enumerate(scores):
-        w = weights[i] if i < len(weights) else 0.7
-        total += s * w
-        weight_total += w
+    for score, weight in zip(finish_scores, weights):
+        weighted_finish += score * weight
+        weight_total += weight
 
-    # 20点満点へ変換
-    score = (total / weight_total) * 5
+    if weight_total > 0:
+        finish_score = (
+            weighted_finish / weight_total
+        ) / 4.0 * 10.0
+    else:
+        finish_score = 0
 
-    return round(max(0, min(20, score)), 1)
+    finish_score = min(
+        10.0,
+        max(0.0, finish_score)
+    )
+
+    # -------------------------
+    # ② 近走の勢い：4点
+    # -------------------------
+    trend_score = 0
+
+    if len(races) >= 2:
+        recent = races[0].get("finish")
+        previous = races[1].get("finish")
+
+        if recent is not None and previous is not None:
+            diff = previous - recent
+
+            if diff >= 3:
+                trend_score = 4.0
+            elif diff == 2:
+                trend_score = 3.0
+            elif diff == 1:
+                trend_score = 2.0
+            elif diff == 0:
+                trend_score = 1.5
+            elif diff == -1:
+                trend_score = 0.5
+            else:
+                trend_score = 0
+
+    # -------------------------
+    # ③ 安定性：3点
+    # -------------------------
+    valid_finishes = [
+        r.get("finish")
+        for r in races
+        if r.get("finish") is not None
+    ]
+
+    stability_score = 0
+
+    if valid_finishes:
+        good_count = sum(
+            1 for x in valid_finishes
+            if x <= 5
+        )
+
+        bad_count = sum(
+            1 for x in valid_finishes
+            if x >= 10
+        )
+
+        stability_score = min(
+            3.0,
+            good_count * 0.75
+        )
+
+        # 大崩れが多い場合は減点
+        stability_score -= bad_count * 0.5
+
+        stability_score = min(
+            3.0,
+            max(0.0, stability_score)
+        )
+
+    # -------------------------
+    # ④ 多頭数実績：3点
+    # -------------------------
+    field_score = 0
+
+    for race in races:
+        finish = race.get("finish")
+        head_count = race.get("head_count")
+
+        if (
+            finish is None
+            or head_count is None
+            or head_count < 10
+        ):
+            continue
+
+        # 10頭以上で5着以内なら評価
+        if finish <= 3:
+            field_score = max(
+                field_score,
+                3.0
+            )
+        elif finish <= 5:
+            field_score = max(
+                field_score,
+                2.0
+            )
+        elif finish <= 8:
+            field_score = max(
+                field_score,
+                1.0
+            )
+
+    # -------------------------
+    # 合計20点
+    # -------------------------
+    total = (
+        finish_score
+        + trend_score
+        + stability_score
+        + field_score
+    )
+
+    return round(
+        min(20.0, max(0.0, total)),
+        1
+    )
 def infer_style(cells):
     t = " ".join(cells)
     for x in ["逃げ", "先行", "差し", "追込"]:
