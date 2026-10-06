@@ -146,26 +146,261 @@ def parse_race(race_id):
 
 def parse_past5(race_id):
     """
-    netkeibaの馬柱（5走）から各馬の直近5走を取得する。
-    取得できない情報はNoneのままにする。
+    netkeibaの「5走表示」から直近5走を取得する。
+    馬番を正確にtd[1]から取得し、
+    過去走はtd[5:10]から取得する。
     """
+
     result = {}
 
     try:
         url = "https://race.netkeiba.com/race/shutuba_past.html"
+
         soup = BeautifulSoup(
-            get(url, {"race_id": race_id, "rf": "shutuba_submenu"}),
+            get(url, {
+                "race_id": race_id,
+                "rf": "shutuba_submenu"
+            }),
             "html.parser"
         )
 
         table = soup.select_one(
-            "table.Shutuba_Past5_Table, "
-            "table[class*='Shutuba_Past5'], "
-            "table"
+            "table.Shutuba_Past5_Table"
         )
 
         if not table:
             return result
+
+        rows = table.select("tbody tr")
+
+        if not rows:
+            rows = table.select("tr")
+
+        for row in rows:
+
+            # tdだけを取得
+            tds = row.select("td")
+
+            # 枠・馬番・印・馬名・騎手・前走～5走
+            if len(tds) < 6:
+                continue
+
+            # -------------------------
+            # 馬番
+            # -------------------------
+
+            number = None
+
+            # netkeibaの5走表示では
+            # 0 = 枠
+            # 1 = 馬番
+            if len(tds) > 1:
+
+                text = clean(tds[1])
+
+                if re.fullmatch(r"\d{1,2}", text or ""):
+                    number = text
+
+            # 念のためclassからも探す
+            if not number:
+
+                td = row.select_one(
+                    "td[class*='Umaban']"
+                )
+
+                if td:
+
+                    text = clean(td)
+
+                    m = re.search(
+                        r"\d{1,2}",
+                        text or ""
+                    )
+
+                    if m:
+                        number = m.group(0)
+
+            if not number:
+                continue
+
+            # -------------------------
+            # 過去5走
+            # -------------------------
+
+            past_cells = tds[5:10]
+
+            past = []
+
+            for cell in past_cells:
+
+                text = clean(cell)
+
+                if not text:
+                    continue
+
+                if text in ("-", "—", "---"):
+                    continue
+
+                # --------------------------------
+                # 着順
+                # --------------------------------
+
+                finish = None
+
+                # Data01がある場合は、
+                # そこから着順を取得
+                data01 = cell.select_one(
+                    ".Data01"
+                )
+
+                if data01:
+
+                    data01_text = clean(data01)
+
+                    # 例：
+                    # 2
+                    # 7
+                    # 15
+                    m = re.search(
+                        r"(?<!\d)(\d{1,2})(?!\d)",
+                        data01_text or ""
+                    )
+
+                    if m:
+
+                        try:
+                            finish = int(m.group(1))
+                        except Exception:
+                            pass
+
+                # Data01で取れなかった場合のみ
+                # セル全体から「着順」を探す
+                if finish is None:
+
+                    # 日付を先に除去
+                    tmp = re.sub(
+                        r"\d{4}\.\d{1,2}\.\d{1,2}",
+                        " ",
+                        text
+                    )
+
+                    # 距離・タイムなどを除去
+                    tmp = re.sub(
+                        r"\d+:\d{2}\.\d",
+                        " ",
+                        tmp
+                    )
+
+                    # 最初の単独数字
+                    m = re.search(
+                        r"(?<!\d)(\d{1,2})(?!\d)",
+                        tmp
+                    )
+
+                    if m:
+
+                        try:
+                            value = int(m.group(1))
+
+                            # 着順としてあり得る範囲
+                            if 1 <= value <= 18:
+                                finish = value
+
+                        except Exception:
+                            pass
+
+                # --------------------------------
+                # 距離
+                # --------------------------------
+
+                distance = None
+
+                m = re.search(
+                    r"(?:芝|ダ|障)[^0-9]{0,10}(\d{3,4})m",
+                    text
+                )
+
+                if m:
+
+                    try:
+                        distance = int(m.group(1))
+                    except Exception:
+                        pass
+
+                # --------------------------------
+                # タイム
+                # --------------------------------
+
+                race_time = None
+
+                m = re.search(
+                    r"\d+:\d{2}\.\d",
+                    text
+                )
+
+                if m:
+                    race_time = m.group(0)
+
+                # --------------------------------
+                # 上がり3F
+                # --------------------------------
+
+                last3f = None
+
+                m = re.search(
+                    r"\((\d{2}\.\d)\)",
+                    text
+                )
+
+                if m:
+
+                    try:
+                        last3f = float(m.group(1))
+                    except Exception:
+                        pass
+
+                # --------------------------------
+                # 通過順位
+                # --------------------------------
+
+                passage = None
+
+                passages = re.findall(
+                    r"\d+(?:-\d+){1,3}",
+                    text
+                )
+
+                if passages:
+                    passage = passages[-1]
+
+                # --------------------------------
+                # データ保存
+                # --------------------------------
+
+                past.append({
+                    "text": text,
+                    "finish": finish,
+                    "distance": distance,
+                    "time": race_time,
+                    "last3f": last3f,
+                    "passage": passage
+                })
+
+            if past:
+
+                result[number] = past[:5]
+
+    except Exception as e:
+
+        print(
+            "[parse_past5 error]",
+            race_id,
+            repr(e)
+        )
+
+        return {}
+
+    return result
 
         rows = table.select("tbody tr")
         if not rows:
