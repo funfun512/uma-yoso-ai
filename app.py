@@ -200,13 +200,22 @@ def parse_nar_odds(race_id):
 
 def parse_nar_past5(cells):
     """
-    NAR公式出馬表の前走〜5走前を取得する。
+    NAR公式標準出馬表の前走〜5走前を解析する。
+    「着順 日付...」と「日付...」の両方に対応。
     """
     results = []
 
     for cell in cells:
+        cell = clean(cell)
+
+        # 例：
+        # 10 26.09.15 不良 12頭 大井 右1400 9番
+        # または
+        # 26.09.15 不良 12頭 大井 右1400 9番
+
         m = re.match(
-            r"^\s*(\d{1,2}|取止|中止)\s+(\d{2}\.\d{2}\.\d{2})\s*(.*)$",
+            r"^\s*(?:(\d{1,2}|取止|中止)\s+)?"
+            r"(\d{2}\.\d{2}\.\d{2})\s*(.*)$",
             cell
         )
 
@@ -215,39 +224,90 @@ def parse_nar_past5(cells):
 
         finish_text, date_text, body = m.groups()
 
+        # 着順
         finish = None
-        if finish_text.isdigit():
+
+        if finish_text and finish_text.isdigit():
             value = int(finish_text)
+
             if 1 <= value <= 18:
                 finish = value
 
+        # 距離
         distance = None
-        dm = re.search(r"(?:右|左)(\d{3,4})", body)
+
+        dm = re.search(
+            r"(?:右|左)(\d{3,4})",
+            body
+        )
+
         if dm:
             distance = int(dm.group(1))
 
+        # 馬場状態
         condition = None
-        cm = re.search(r"(良|稍重|重|不良)", body)
+
+        cm = re.search(
+            r"(良|稍重|重|不良)",
+            body
+        )
+
         if cm:
             condition = cm.group(1)
 
+        # 頭数
         head_count = None
-        hm = re.search(r"(\d{1,2})頭", body)
+
+        hm = re.search(
+            r"(\d{1,2})頭",
+            body
+        )
+
         if hm:
             head_count = int(hm.group(1))
 
+        # 馬番
         horse_number = None
-        nm = re.search(r"(\d{1,2})番", body)
+
+        nm = re.search(
+            r"(\d{1,2})番",
+            body
+        )
+
         if nm:
             horse_number = int(nm.group(1))
 
+        # 競馬場
         place = None
-        for venue_name in [
-            "大井", "船橋", "川崎", "浦和",
-            "門別", "盛岡", "水沢", "金沢",
-            "笠松", "名古屋", "園田", "姫路",
-            "高知", "佐賀"
-        ]:
+
+        venue_names = [
+            "大井",
+            "船橋",
+            "川崎",
+            "浦和",
+            "門別",
+            "盛岡",
+            "水沢",
+            "金沢",
+            "笠松",
+            "名古屋",
+            "園田",
+            "姫路",
+            "高知",
+            "佐賀",
+            "東京",
+            "中山",
+            "京都",
+            "阪神",
+            "中京",
+            "札幌",
+            "函館",
+            "福島",
+            "新潟",
+            "小倉"
+        ]
+
+        for venue_name in venue_names:
             if venue_name in body:
                 place = venue_name
                 break
@@ -267,6 +327,83 @@ def parse_nar_past5(cells):
             break
 
     return results
+    
+def parse_nar_past5_race(race_id, horse_names):
+    """
+    NAR標準版DebaTableから各馬の前走〜5走前を取得する。
+    馬名ごとの辞書を返す。
+    """
+    result = {name: [] for name in horse_names}
+
+    m = re.fullmatch(
+        r"nar:(\d{8}):(\d{2}):(\d{2})",
+        race_id
+    )
+
+    if not m:
+        return result
+
+    date, baba_code, race_no = m.groups()
+
+    url = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable"
+
+    params = {
+        "k_babaCode": baba_code,
+        "k_raceDate": f"{date[:4]}/{date[4:6]}/{date[6:8]}",
+        "k_raceNo": int(race_no),
+    }
+
+    soup = BeautifulSoup(
+        get(url, params),
+        "html.parser"
+    )
+
+    target_table = None
+
+    for table in soup.select("table"):
+        table_text = clean(table)
+
+        if (
+            "前走" in table_text
+            and "前々走" in table_text
+            and "3走前" in table_text
+            and "5走前" in table_text
+        ):
+            target_table = table
+            break
+
+    if not target_table:
+        return result
+
+    current_horse = None
+
+    for row in target_table.select("tr"):
+
+        row_text = clean(row)
+
+        # 現在の馬名を探す
+        for horse_name in horse_names:
+            if horse_name and horse_name in row_text:
+                current_horse = horse_name
+                break
+
+        if not current_horse:
+            continue
+
+        cells = [
+            clean(cell)
+            for cell in row.select("th, td")
+        ]
+
+        past5 = parse_nar_past5(cells)
+
+        if past5:
+            result[current_horse].extend(past5)
+
+            if len(result[current_horse]) > 5:
+                result[current_horse] = result[current_horse][:5]
+
+    return result
     
 def parse_nar_race(race_id):
     """
