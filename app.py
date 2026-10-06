@@ -1144,30 +1144,30 @@ def dashboard():
             }
         })
 
-    races=netkeiba_races(date,venue)
-    if not races:
-            sched=jra_schedule_status(date,venue)
-            return jsonify({"date":date,"venue":venue,"races":[],"horses":[],**sched,"track":{"condition":None,"cushion":None,"moisture_4c":None,"moisture_goal":None,"measurement_time":None,"bias":None,"note":"出馬表公開前。レース当日の馬場情報はまだ評価しません。"},"weather":{"available":False},"bias":{"races_used":0,"summary":"出馬表公開前","front":"—","stalk":"—","closer":"—","deep":"—","inside":"—","outside":"—"}})
-        if selected:
-            race_id=selected
-        else:
-            race_id=races[0]["race_id"]
-        race_meta=next((x for x in races if x["race_id"]==race_id),{"race_id":race_id})
-        parsed=parse_race(race_id)
-        track=jra_track(venue)
-        wx=weather(venue)
-        bias=same_day_bias(date,venue,race_id)
-        speed=parse_speed_index(race_id)
-        horses=[]
-        for h in parsed["horses"]:
-            sc,grade,tags,parts=score_horse(h,track,bias)
-            horses.append({**h,"score":sc,"buy_grade":grade,"tags":tags,"score_parts":parts,
-                           "reason":"取得できた事実だけで評価。未取得項目は加点していません。"})
-        horses.sort(key=lambda x:(x["score"], -(x.get("odds_num") or 999)),reverse=True)
-        return jsonify({"date":date,"venue":venue,"race":{**race_meta,"title":parsed.get("title")},"horses":horses,
-                        "track":track,"weather":wx,"bias":bias,"speed_index_rows":speed,
-                        "sources":{"netkeiba":"出馬表・オッズ・タイム指数等","jra":"馬場状態・クッション値・含水率等","weather":"Open-Meteo"},
-                        "model":{"total":100,"note":"予想モデル。事実取得とモデル判断を分離。的中・利益は保証しません。"}})
+        races=netkeiba_races(date,venue)
+        if not races:
+                sched=jra_schedule_status(date,venue)
+                return jsonify({"date":date,"venue":venue,"races":[],"horses":[],**sched,"track":{"condition":None,"cushion":None,"moisture_4c":None,"moisture_goal":None,"measurement_time":None,"bias":None,"note":"出馬表公開前。レース当日の馬場情報はまだ評価しません。"},"weather":{"available":False},"bias":{"races_used":0,"summary":"出馬表公開前","front":"—","stalk":"—","closer":"—","deep":"—","inside":"—","outside":"—"}})
+            if selected:
+                race_id=selected
+            else:
+                race_id=races[0]["race_id"]
+            race_meta=next((x for x in races if x["race_id"]==race_id),{"race_id":race_id})
+            parsed=parse_race(race_id)
+            track=jra_track(venue)
+            wx=weather(venue)
+            bias=same_day_bias(date,venue,race_id)
+            speed=parse_speed_index(race_id)
+            horses=[]
+            for h in parsed["horses"]:
+                sc,grade,tags,parts=score_horse(h,track,bias)
+                horses.append({**h,"score":sc,"buy_grade":grade,"tags":tags,"score_parts":parts,
+                               "reason":"取得できた事実だけで評価。未取得項目は加点していません。"})
+            horses.sort(key=lambda x:(x["score"], -(x.get("odds_num") or 999)),reverse=True)
+            return jsonify({"date":date,"venue":venue,"race":{**race_meta,"title":parsed.get("title")},"horses":horses,
+                            "track":track,"weather":wx,"bias":bias,"speed_index_rows":speed,
+                            "sources":{"netkeiba":"出馬表・オッズ・タイム指数等","jra":"馬場状態・クッション値・含水率等","weather":"Open-Meteo"},
+                            "model":{"total":100,"note":"予想モデル。事実取得とモデル判断を分離。的中・利益は保証しません。"}})
     except Exception as e:
         return jsonify({"error":"予想データ取得に失敗しました","detail":str(e)}),502
 
