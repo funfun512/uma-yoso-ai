@@ -369,7 +369,7 @@ def parse_nar_race(race_id):
                 "jockey": jockey,
                 "trainer": "",
                 "odds": f"{odds_value:g}" if odds_value is not None else "",
-　　             "odds_num": odds_value,
+                "odds_num": odds_value,
                 "sex_age": sex_age,
                 "weight": weight,
                 "style": "",
