@@ -341,7 +341,7 @@ def parse_nar_past5(cells):
 def parse_nar_past5_race(race_id, horse_names):
     """
     NAR標準版DebaTableから各馬の前走〜5走前を取得する。
-    馬名ごとの辞書を返す。
+    馬名＋日付が存在する行を直接探す。
     """
     result = {name: [] for name in horse_names}
 
@@ -363,33 +363,35 @@ def parse_nar_past5_race(race_id, horse_names):
         "k_raceNo": int(race_no),
     }
 
-    soup = BeautifulSoup(
-        get(url, params),
-        "html.parser"
-    )
-
-    target_table = None
-
-    for table in soup.select("table"):
-        table_text = clean(table)
-
-        if (
-            "前走" in table_text
-            and "前々走" in table_text
-            and "3走前" in table_text
-            and "5走前" in table_text
-        ):
-            target_table = table
-            break
-
-    if not target_table:
+    try:
+        soup = BeautifulSoup(
+            get(url, params),
+            "html.parser"
+        )
+    except Exception as e:
+        print(
+            "[NAR PAST5 FETCH ERROR]",
+            repr(e),
+            flush=True
+        )
         return result
 
-    current_horse = None
+    print(
+        "[NAR PAST5 START]",
+        race_id,
+        "horses=",
+        len(horse_names),
+        flush=True
+    )
 
-    for row in target_table.select("tr"):
+    matched_rows = 0
+
+    # ページ全体のtrから直接探す
+    for row in soup.select("tr"):
+
         row_text = clean(row)
 
+        # 馬名を特定
         current_horse = None
 
         for horse_name in horse_names:
@@ -400,29 +402,64 @@ def parse_nar_past5_race(race_id, horse_names):
         if not current_horse:
             continue
 
+        # 日付がなければ近5走データではない
+        if not re.search(
+            r"\d{2}\.\d{2}\.\d{2}",
+            row_text
+        ):
+            continue
+
+        matched_rows += 1
+
         cells = [
             clean(cell)
             for cell in row.select("th, td")
         ]
-        print("[NAR PAST5 CELLS]", cells)
 
-        # まずセル単位で解析
+        print(
+            "[NAR PAST5 ROW]",
+            current_horse,
+            cells,
+            flush=True
+        )
+
+        # セル単位で解析
         past5 = parse_nar_past5(cells)
 
-        # セル分割されている場合に備えて、行全体でも解析
+        # セル分割されていない場合は行全体で解析
         if not past5:
-            past5 = parse_nar_past5([row_text])
+            past5 = parse_nar_past5(
+                [row_text]
+            )
 
-        if past5:
-            existing = result[current_horse]
+        if not past5:
+            continue
 
-            for item in past5:
-                if item.get("raw") not in [
-                    x.get("raw") for x in existing
-                ]:
-                    existing.append(item)
+        existing = result[current_horse]
 
-            result[current_horse] = existing[:5]
+        for item in past5:
+
+            raw = item.get("raw")
+
+            if raw not in [
+                x.get("raw")
+                for x in existing
+            ]:
+                existing.append(item)
+
+        result[current_horse] = existing[:5]
+
+    print(
+        "[NAR PAST5 DONE]",
+        "matched_rows=",
+        matched_rows,
+        "counts=",
+        {
+            name: len(result[name])
+            for name in result
+        },
+        flush=True
+    )
 
     return result
     
