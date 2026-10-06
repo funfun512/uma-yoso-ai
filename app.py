@@ -688,12 +688,12 @@ for horse in horses:
 
     past5 = past5_map.get(name, [])
 
-        if len(past5) > 5:
-            past5 = past5[:5]
+    if len(past5) > 5:
+        past5 = past5[:5]
 
-        horse["past5"] = past5
-        horse["recent_form_score"] = recent_form_score(
-            past5
+    horse["past5"] = past5
+    horse["recent_form_score"] = recent_form_score(
+        past5
         )
 
     return {
