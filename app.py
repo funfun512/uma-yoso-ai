@@ -65,7 +65,7 @@ def nar_races(date, venue):
 
     for race_no in range(1, 13):
         try:
-            url = "https://www.keiba.go.jp/KeibaWebSP/TodayRaceInfo/S_DebaTable"
+            url = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable"
             params = {
                 "k_babaCode": baba_code,
                 "k_raceDate": f"{date[:4]}/{date[4:6]}/{date[6:8]}",
@@ -136,7 +136,7 @@ def parse_nar_odds(race_id):
 
     date, baba_code, race_no = m.groups()
 
-    url = "https://www.keiba.go.jp/KeibaWebSP_IPAT/TodayRaceInfo/S_OddsTan_ipat"
+    url = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable"
 
     params = {
         "k_babaCode": baba_code,
