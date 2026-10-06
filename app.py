@@ -287,7 +287,7 @@ def parse_nar_race(race_id):
 
     date, baba_code, race_no = m.groups()
 
-    https://www.keiba.go.jp/KeibaWebSP/TodayRaceInfo/S_DebaTable
+    url = "https://www.keiba.go.jp/KeibaWebSP/TodayRaceInfo/S_DebaTable"
 
     params = {
         "k_babaCode": baba_code,
