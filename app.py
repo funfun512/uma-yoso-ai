@@ -128,9 +128,193 @@ def parse_race(race_id):
                 "odds": odds_s, "odds_num": parse_num(odds_s), "sex_age": sex_age,
                 "weight": weight, "style": style, "raw_cells": cells
             })
-    return {"title": title, "meta_text": meta_text[:5000], "horses": horses}
+    # 近5走を取得して各馬に追加
+    past5 = parse_past5(race_id)
+
+    for horse in horses:
+        number = horse.get("number")
+        races = past5.get(number, [])
+
+        horse["past5"] = races
+        horse["recent_form_score"] = recent_form_score(races)
+
+    return {
+        "title": title,
+        "meta_text": meta_text[:5000],
+        "horses": horses
+    }
+
+def parse_past5(race_id):
+    """
+    netkeibaの馬柱（5走）から各馬の直近5走を取得する。
+    取得できない情報はNoneのままにする。
+    """
+    result = {}
+
+    try:
+        url = "https://race.netkeiba.com/race/shutuba_past.html"
+        soup = BeautifulSoup(
+            get(url, {"race_id": race_id, "rf": "shutuba_submenu"}),
+            "html.parser"
+        )
+
+        table = soup.select_one(
+            "table.Shutuba_Past5_Table, "
+            "table[class*='Shutuba_Past5'], "
+            "table"
+        )
+
+        if not table:
+            return result
+
+        rows = table.select("tbody tr")
+        if not rows:
+            rows = table.select("tr")
+
+        for row in rows:
+            tds = row.select("td")
+            if len(tds) < 6:
+                continue
+
+            # 馬番
+            number = None
+
+            for td in tds[:4]:
+                text = clean(td)
+                if re.fullmatch(r"\d{1,2}", text or ""):
+                    number = text
+                    break
+
+            if not number:
+                m = re.search(
+                    r"(?:馬番|Umaban)[^\d]{0,20}(\d{1,2})",
+                    clean(row)
+                )
+                if m:
+                    number = m.group(1)
+
+            if not number:
+                continue
+
+            past = []
+
+            # netkeibaの馬柱では過去走が5列に並ぶ
+            past_cells = tds[5:10]
+
+            for cell in past_cells:
+                text = clean(cell)
+
+                if not text:
+                    continue
+
+                # 空欄・プロフィール情報などは除外
+                if text in ("-", "—", "---"):
+                    continue
+
+                # 着順
+                finish = None
+                m = re.search(r"(?<!\d)(\d{1,2})(?!\d)", text)
+                if m:
+                    try:
+                        finish = int(m.group(1))
+                    except Exception:
+                        pass
+
+                # 距離
+                distance = None
+                m = re.search(r"(?:芝|ダ|障)[^\d]{0,10}(\d{3,4})m", text)
+                if m:
+                    try:
+                        distance = int(m.group(1))
+                    except Exception:
+                        pass
+
+                # タイム
+                race_time = None
+                m = re.search(
+                    r"(?<!\d)(\d+:\d{2}\.\d)(?!\d)",
+                    text
+                )
+                if m:
+                    race_time = m.group(1)
+
+                # 上がり3F
+                last3f = None
+                m = re.search(r"\((\d{2}\.\d)\)", text)
+                if m:
+                    try:
+                        last3f = float(m.group(1))
+                    except Exception:
+                        pass
+
+                past.append({
+                    "text": text,
+                    "finish": finish,
+                    "distance": distance,
+                    "time": race_time,
+                    "last3f": last3f
+                })
+
+            if past:
+                result[number] = past[:5]
+
+    except Exception:
+        return {}
+
+    return result
 
 
+def recent_form_score(past5):
+    """
+    近5走を20点満点で評価。
+    情報がない場合は0点。
+    """
+    if not past5:
+        return 0
+
+    scores = []
+
+    for race in past5[:5]:
+        finish = race.get("finish")
+
+        if not isinstance(finish, int):
+            continue
+
+        if finish == 1:
+            s = 4.0
+        elif finish == 2:
+            s = 3.5
+        elif finish == 3:
+            s = 3.0
+        elif finish <= 5:
+            s = 2.5
+        elif finish <= 8:
+            s = 1.5
+        elif finish <= 12:
+            s = 0.5
+        else:
+            s = 0
+
+        scores.append(s)
+
+    if not scores:
+        return 0
+
+    # 直近のレースを少し重視
+    weights = [1.30, 1.15, 1.00, 0.90, 0.80]
+
+    total = 0
+    weight_total = 0
+
+    for i, s in enumerate(scores):
+        w = weights[i] if i < len(weights) else 0.7
+        total += s * w
+        weight_total += w
+
+    # 20点満点へ変換
+    score = (total / weight_total) * 5
+
+    return round(max(0, min(20, score)), 1)
 def infer_style(cells):
     t = " ".join(cells)
     for x in ["逃げ", "先行", "差し", "追込"]:
