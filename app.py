@@ -198,6 +198,76 @@ def parse_nar_odds(race_id):
         print("[parse_nar_odds error]", repr(e))
         return {}
 
+def parse_nar_past5(cells):
+    """
+    NAR公式出馬表の前走〜5走前を取得する。
+    """
+    results = []
+
+    for cell in cells:
+        m = re.match(
+            r"^\s*(\d{1,2}|取止|中止)\s+(\d{2}\.\d{2}\.\d{2})\s*(.*)$",
+            cell
+        )
+
+        if not m:
+            continue
+
+        finish_text, date_text, body = m.groups()
+
+        finish = None
+        if finish_text.isdigit():
+            value = int(finish_text)
+            if 1 <= value <= 18:
+                finish = value
+
+        distance = None
+        dm = re.search(r"(?:右|左)(\d{3,4})", body)
+        if dm:
+            distance = int(dm.group(1))
+
+        condition = None
+        cm = re.search(r"(良|稍重|重|不良)", body)
+        if cm:
+            condition = cm.group(1)
+
+        head_count = None
+        hm = re.search(r"(\d{1,2})頭", body)
+        if hm:
+            head_count = int(hm.group(1))
+
+        horse_number = None
+        nm = re.search(r"(\d{1,2})番", body)
+        if nm:
+            horse_number = int(nm.group(1))
+
+        place = None
+        for venue_name in [
+            "大井", "船橋", "川崎", "浦和",
+            "門別", "盛岡", "水沢", "金沢",
+            "笠松", "名古屋", "園田", "姫路",
+            "高知", "佐賀"
+        ]:
+            if venue_name in body:
+                place = venue_name
+                break
+
+        results.append({
+            "date": date_text,
+            "place": place,
+            "finish": finish,
+            "distance": distance,
+            "track_condition": condition,
+            "head_count": head_count,
+            "horse_number": horse_number,
+            "raw": cell
+        })
+
+        if len(results) >= 5:
+            break
+
+    return results
+    
 def parse_nar_race(race_id):
     """
     NAR公式の出馬表から地方競馬の出走馬を取得する。
@@ -361,6 +431,9 @@ def parse_nar_race(race_id):
                         jockey = cell
             odds_value = odds_map.get(int(number)) if str(number).isdigit() else None
             
+            past5 = parse_nar_past5(cells)
+            recent_score = recent_form_score(past5)
+            
             horses.append({
                 "waku": waku,
                 "number": number,
@@ -374,7 +447,8 @@ def parse_nar_race(race_id):
                 "weight": weight,
                 "style": "",
                 "raw_cells": cells,
-                "past5": [],
+                "past5": past5,
+                "recent_form_score": recent_score,
             })
 
     return {
