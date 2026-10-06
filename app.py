@@ -1145,7 +1145,7 @@ def dashboard():
         })
 
     races=netkeiba_races(date,venue)
-        if not races:
+    if not races:
             sched=jra_schedule_status(date,venue)
             return jsonify({"date":date,"venue":venue,"races":[],"horses":[],**sched,"track":{"condition":None,"cushion":None,"moisture_4c":None,"moisture_goal":None,"measurement_time":None,"bias":None,"note":"出馬表公開前。レース当日の馬場情報はまだ評価しません。"},"weather":{"available":False},"bias":{"races_used":0,"summary":"出馬表公開前","front":"—","stalk":"—","closer":"—","deep":"—","inside":"—","outside":"—"}})
         if selected:
