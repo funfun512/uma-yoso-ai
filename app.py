@@ -1029,7 +1029,122 @@ def dashboard():
     selected=request.args.get("race_id","")
     if not re.fullmatch(r"\d{8}",date): return jsonify({"error":"date must be YYYYMMDD"}),400
     try:
-        races=netkeiba_races(date,venue)
+        if is_nar_venue(venue):
+            races = nar_races(date, venue)
+
+            if not races:
+                return jsonify({
+                "date": date,
+                "venue": venue,
+                "races": [],
+                "horses": [],
+                "status": "scheduled",
+                "track": {
+                    "condition": None,
+                    "cushion": None,
+                    "moisture_4c": None,
+                    "moisture_goal": None,
+                    "measurement_time": None,
+                    "bias": None,
+                    "note": "地方競馬の出馬表がまだ取得できません。"
+                },
+                "weather": {"available": False},
+                "bias": {
+                    "races_used": 0,
+                    "summary": "データ不足",
+                    "front": "—",
+                    "stalk": "—",
+                    "closer": "—",
+                    "deep": "—",
+                    "inside": "—",
+                    "outside": "—"
+                }
+            })
+
+        if selected:
+            race_id = selected
+        else:
+            race_id = races[0]["race_id"]
+
+        race_meta = next(
+            (x for x in races if x["race_id"] == race_id),
+            {"race_id": race_id}
+        )
+
+        parsed = parse_nar_race(race_id)
+
+        horses = []
+
+        nar_track = {
+            "condition": None,
+            "cushion": None,
+            "moisture_4c": None,
+            "moisture_goal": None,
+            "measurement_time": None,
+            "bias": None,
+            "note": "NAR公式出馬表を取得。馬場詳細は未取得項目を推測しません。"
+        }
+
+        nar_bias = {
+            "races_used": 0,
+            "summary": "地方競馬の当日傾向は未取得",
+            "front": "—",
+            "stalk": "—",
+            "closer": "—",
+            "deep": "—",
+            "inside": "—",
+            "outside": "—"
+        }
+
+        for h in parsed["horses"]:
+            sc, grade, tags, parts = score_horse(
+                h,
+                nar_track,
+                nar_bias
+            )
+
+            horses.append({
+                **h,
+                "score": sc,
+                "buy_grade": grade,
+                "tags": tags,
+                "score_parts": parts,
+                "reason": "NAR公式で取得できた事実だけで評価。未取得項目は加点していません。"
+            })
+
+        horses.sort(
+            key=lambda x: (
+                x["score"],
+                -(x.get("odds_num") or 999)
+            ),
+            reverse=True
+        )
+
+        return jsonify({
+            "date": date,
+            "venue": venue,
+            "race": {
+                **race_meta,
+                "title": parsed.get("title")
+            },
+            "horses": horses,
+            "track": nar_track,
+            "weather": {
+                "available": False
+            },
+            "bias": nar_bias,
+            "speed_index_rows": [],
+            "sources": {
+                "nar": "地方競馬情報サイト・NAR公式出馬表",
+                "model": "100点評価モデル"
+            },
+            "model": {
+                "total": 100,
+                "note": "地方競馬用。取得事実とモデル判断を分離。未取得項目は推測しません。"
+            }
+        })
+
+    races=netkeiba_races(date,venue)
         if not races:
             sched=jra_schedule_status(date,venue)
             return jsonify({"date":date,"venue":venue,"races":[],"horses":[],**sched,"track":{"condition":None,"cushion":None,"moisture_4c":None,"moisture_goal":None,"measurement_time":None,"bias":None,"note":"出馬表公開前。レース当日の馬場情報はまだ評価しません。"},"weather":{"available":False},"bias":{"races_used":0,"summary":"出馬表公開前","front":"—","stalk":"—","closer":"—","deep":"—","inside":"—","outside":"—"}})
