@@ -12,6 +12,13 @@ CORS(app)
 
 UA = {"User-Agent": os.getenv("UMA_USER_AGENT", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1")}
 VENUES = {"札幌":"01","函館":"02","福島":"03","新潟":"04","東京":"05","中山":"06","中京":"07","京都":"08","阪神":"09","小倉":"10"}
+# 地方競馬：NAR公式
+NAR_VENUES = {
+    "大井": "20",
+}
+
+def is_nar_venue(venue):
+    return venue in NAR_VENUES
 VENUE_COORDS = {
     "札幌": (43.0618, 141.356), "函館": (41.7758, 140.810), "福島": (37.731, 140.467),
     "新潟": (37.916, 139.036), "東京": (35.6657, 139.483), "中山": (35.725, 139.963),
@@ -45,7 +52,264 @@ def get_json(url, params=None, timeout=15):
 def netkeiba_top(date):
     return BeautifulSoup(get("https://race.netkeiba.com/top/", {"kaisai_date": date}), "html.parser")
 
+def nar_races(date, venue):
+    """
+    NAR公式から地方競馬の当日レース一覧を取得する。
+    race_idは nar:YYYYMMDD:baba_code:race_no の形式。
+    """
+    if not is_nar_venue(venue):
+        return []
 
+    baba_code = NAR_VENUES[venue]
+    found = []
+
+    for race_no in range(1, 13):
+        try:
+            url = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/S_DebaTable"
+            params = {
+                "k_babaCode": baba_code,
+                "k_raceDate": f"{date[:4]}/{date[4:6]}/{date[6:8]}",
+                "k_raceNo": race_no,
+            }
+
+            soup = BeautifulSoup(
+                get(url, params),
+                "html.parser"
+            )
+
+            text = clean(soup)
+
+            if "出馬表" not in text:
+                continue
+
+            # レース名をできるだけ取得
+            title = ""
+
+            for selector in [
+                "h1",
+                "h2",
+                ".RaceName",
+                ".raceName",
+            ]:
+                node = soup.select_one(selector)
+                if node:
+                    title = clean(node)
+                    if title:
+                        break
+
+            if not title:
+                # ページタイトルなどから補完
+                title = f"{race_no}R"
+
+            race_id = f"nar:{date}:{baba_code}:{race_no:02d}"
+
+            found.append({
+                "race_id": race_id,
+                "label": title,
+                "url": (
+                    "https://www.keiba.go.jp/KeibaWeb/"
+                    "TodayRaceInfo/S_DebaTable"
+                    f"?k_babaCode={baba_code}"
+                    f"&k_raceDate={date[:4]}%2F{date[4:6]}%2F{date[6:8]}"
+                    f"&k_raceNo={race_no}"
+                ),
+            })
+
+        except Exception as e:
+            print(
+                "[nar_races error]",
+                venue,
+                race_no,
+                repr(e)
+            )
+            continue
+
+    return found
+
+
+def parse_nar_race(race_id):
+    """
+    NAR公式の出馬表から地方競馬の出走馬を取得する。
+    """
+
+    m = re.fullmatch(
+        r"nar:(\d{8}):(\d{2}):(\d{2})",
+        race_id
+    )
+
+    if not m:
+        return {
+            "title": "",
+            "meta_text": "",
+            "horses": []
+        }
+
+    date, baba_code, race_no = m.groups()
+
+    url = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/S_DebaTable"
+
+    params = {
+        "k_babaCode": baba_code,
+        "k_raceDate": f"{date[:4]}/{date[4:6]}/{date[6:8]}",
+        "k_raceNo": int(race_no),
+    }
+
+    soup = BeautifulSoup(
+        get(url, params),
+        "html.parser"
+    )
+
+    meta_text = clean(soup)
+
+    title = ""
+    for selector in [
+        "h1",
+        "h2",
+        ".RaceName",
+        ".raceName",
+    ]:
+        node = soup.select_one(selector)
+        if node:
+            title = clean(node)
+            if title:
+                break
+
+    horses = []
+
+    # 「枠番・馬番・馬名」がある出馬表テーブルを探す
+    target_table = None
+
+    for table in soup.select("table"):
+        table_text = clean(table)
+
+        if (
+            "枠番" in table_text
+            and "馬番" in table_text
+            and "馬名" in table_text
+        ):
+            target_table = table
+            break
+
+    if target_table:
+
+        rows = target_table.select("tr")
+
+        for row in rows:
+
+            cells = [
+                clean(cell)
+                for cell in row.select("th, td")
+            ]
+
+            if len(cells) < 4:
+                continue
+
+            # 枠番
+            waku = ""
+            for cell in cells:
+                if re.fullmatch(r"[1-8]", cell):
+                    waku = cell
+                    break
+
+            # 馬番
+            number = ""
+            for cell in cells:
+                if re.fullmatch(r"\d{1,2}", cell):
+                    value = int(cell)
+                    if 1 <= value <= 18:
+                        number = cell
+                        break
+
+            if not number:
+                continue
+
+            # 馬名
+            name = ""
+
+            for cell in cells:
+                if (
+                    cell
+                    and cell != waku
+                    and cell != number
+                    and len(cell) >= 2
+                    and not re.fullmatch(r"\d+(?:\.\d+)?", cell)
+                ):
+                    name = cell
+                    break
+
+            if not name:
+                continue
+
+            # 性齢
+            sex_age = ""
+            for cell in cells:
+                if re.fullmatch(
+                    r"[牡牝セ]\s*\d+",
+                    cell
+                ):
+                    sex_age = cell
+                    break
+
+            # 斤量
+            weight = ""
+            for cell in cells:
+                if re.fullmatch(
+                    r"[▲△☆]?[\d\.]+",
+                    cell
+                ):
+                    try:
+                        value = float(
+                            re.sub(r"[^0-9.]", "", cell)
+                        )
+                        if 45 <= value <= 70:
+                            weight = cell
+                            break
+                    except Exception:
+                        pass
+
+            # 騎手
+            jockey = ""
+
+            for cell in cells:
+                if (
+                    cell
+                    and cell != name
+                    and cell != sex_age
+                    and len(cell) >= 2
+                    and not re.search(
+                        r"(大井|川崎|浦和|船橋|JRA|笠松|園田|名古屋)",
+                        cell
+                    )
+                    and not re.fullmatch(
+                        r"\d+(?:\.\d+)?",
+                        cell
+                    )
+                ):
+                    # 騎手候補
+                    if not jockey:
+                        jockey = cell
+
+            horses.append({
+                "waku": waku,
+                "number": number,
+                "name": name,
+                "horse_id": "",
+                "jockey": jockey,
+                "trainer": "",
+                "odds": "",
+                "odds_num": None,
+                "sex_age": sex_age,
+                "weight": weight,
+                "style": "",
+                "raw_cells": cells,
+                "past5": [],
+            })
+
+    return {
+        "title": title,
+        "meta_text": meta_text[:5000],
+        "horses": horses
+    }
 def netkeiba_races(date, venue):
     soup = netkeiba_top(date)
     code = VENUES.get(venue)
