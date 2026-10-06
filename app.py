@@ -113,7 +113,18 @@ def parse_race(race_id):
             for c in cells:
                 if re.fullmatch(r"\d{1,2}", c):
                     number = c; break
-        name = clean(row.select_one(".HorseName a, .HorseName, [class*='HorseName']"))
+        horse_link = row.select_one(".HorseName a, .HorseInfo a[href*='/horse/'], [class*='HorseName'] a")
+
+        name = clean(horse_link)
+
+        horse_id = ""
+
+        if horse_link:
+         href = horse_link.get("href", "")
+         m = re.search(r"/horse/(\d+)", href)
+         if m:
+          horse_id = m.group(1)
+
         jockey = clean(row.select_one(".Jockey a, .Jockey, [class*='Jockey']"))
         trainer = clean(row.select_one(".Trainer a, .Trainer, [class*='Trainer']"))
         odds_s = clean(row.select_one(".Odds, .Popular_Ninki, [class*='Odds']"))
@@ -124,16 +135,24 @@ def parse_race(race_id):
         style = infer_style(cells)
         if name or number:
             horses.append({
-                "number": number, "name": name, "jockey": jockey, "trainer": trainer,
-                "odds": odds_s, "odds_num": parse_num(odds_s), "sex_age": sex_age,
-                "weight": weight, "style": style, "raw_cells": cells
+    "number": number,
+    "name": name,
+    "horse_id": horse_id,
+    "jockey": jockey,
+    "trainer": trainer,
+    "odds": odds_s,
+    "odds_num": parse_num(odds_s),
+    "sex_age": sex_age,
+    "weight": weight,
+    "style": style,
+    "raw_cells": cells
             })
     # 近5走を取得して各馬に追加
     past5 = parse_past5(race_id)
 
     for horse in horses:
-        number = horse.get("number")
-        races = past5.get(number, [])
+        horse_id = horse.get("horse_id")
+        races = past5.get(horse_id, [])
 
         horse["past5"] = races
         horse["recent_form_score"] = recent_form_score(races)
@@ -144,356 +163,201 @@ def parse_race(race_id):
         "horses": horses
     }
 
+def parse_horse_results(horse_id):
+    """
+    netkeibaの競走馬成績ページから直近5走を取得する。
+    """
+
+    results = []
+
+    if not horse_id:
+        return results
+
+    try:
+        url = f"https://db.netkeiba.com/horse/result/{horse_id}/"
+
+        soup = BeautifulSoup(
+            get(url),
+            "html.parser"
+        )
+
+        table = soup.select_one(
+            "table.db_h_race_results"
+        )
+
+        if not table:
+            return results
+
+        rows = table.select("tbody tr")
+
+        if not rows:
+            rows = table.select("tr")
+
+        for row in rows:
+
+            cells = row.select("td")
+
+            if len(cells) < 20:
+                continue
+
+            date = clean(cells[0])
+            place = clean(cells[1])
+            race_name = clean(cells[4])
+            head_count = clean(cells[6])
+            horse_number = clean(cells[8])
+            popularity = clean(cells[10])
+            finish = clean(cells[11])
+            jockey = clean(cells[12])
+            distance_text = clean(cells[14])
+            track_condition = clean(cells[15])
+            race_time = clean(cells[17])
+            margin = clean(cells[18])
+
+            last3f = None
+
+            if len(cells) > 22:
+                text = clean(cells[22])
+                m = re.search(r"(\d{2}\.\d)", text)
+
+                if m:
+                    try:
+                        last3f = float(m.group(1))
+                    except Exception:
+                        pass
+
+            passage = None
+
+            if len(cells) > 21:
+                text = clean(cells[21])
+
+                if text:
+                    passage = text
+
+            distance = None
+
+            m = re.search(
+                r"(?:芝|ダ|障)(\d{3,4})",
+                distance_text
+            )
+
+            if m:
+                try:
+                    distance = int(m.group(1))
+                except Exception:
+                    pass
+
+            finish_num = None
+
+            m = re.search(
+                r"(\d{1,2})",
+                finish
+            )
+
+            if m:
+                try:
+                    value = int(m.group(1))
+
+                    if 1 <= value <= 18:
+                        finish_num = value
+
+                except Exception:
+                    pass
+
+            if date:
+
+                results.append({
+                    "date": date,
+                    "place": place,
+                    "race_name": race_name,
+                    "head_count": head_count,
+                    "horse_number": horse_number,
+                    "popularity": popularity,
+                    "finish": finish_num,
+                    "jockey": jockey,
+                    "distance": distance,
+                    "distance_text": distance_text,
+                    "track_condition": track_condition,
+                    "time": race_time,
+                    "margin": margin,
+                    "last3f": last3f,
+                    "passage": passage
+                })
+
+            if len(results) >= 5:
+                break
+
+    except Exception as e:
+
+        print(
+            "[parse_horse_results error]",
+            horse_id,
+            repr(e)
+        )
+
+        return []
+
+    return results
+
+
 def parse_past5(race_id):
     """
-    netkeibaの「5走表示」から直近5走を取得する。
-    馬番を正確にtd[1]から取得し、
-    過去走はtd[5:10]から取得する。
+    出馬表から各馬のhorse_idを取得し、
+    競走馬成績ページから直近5走を取得する。
     """
 
     result = {}
 
     try:
-        url = "https://race.netkeiba.com/race/shutuba_past.html"
-
         soup = BeautifulSoup(
-            get(url, {
-                "race_id": race_id,
-                "rf": "shutuba_submenu"
-            }),
+            get(
+                "https://race.netkeiba.com/race/shutuba.html",
+                {"race_id": race_id}
+            ),
             "html.parser"
         )
 
-        table = soup.select_one(
-            "table.Shutuba_Past5_Table"
+        rows = soup.select(
+            "tr.HorseList, "
+            "tr.HorseListData, "
+            "tr[class*='HorseList']"
         )
-
-        if not table:
-            return result
-
-        rows = table.select("tbody tr")
-
-        if not rows:
-            rows = table.select("tr")
 
         for row in rows:
 
-            # tdだけを取得
-            tds = row.select("td")
+            horse_link = row.select_one(
+                ".HorseName a, "
+                ".HorseInfo a[href*='/horse/'], "
+                "a[href*='/horse/']"
+            )
 
-            # 枠・馬番・印・馬名・騎手・前走～5走
-            if len(tds) < 6:
+            if not horse_link:
                 continue
 
-            # -------------------------
-            # 馬番
-            # -------------------------
+            href = horse_link.get("href", "")
 
-            number = None
+            m = re.search(
+                r"/horse/(\d+)",
+                href
+            )
 
-            # netkeibaの5走表示では
-            # 0 = 枠
-            # 1 = 馬番
-            if len(tds) > 1:
-
-                text = clean(tds[1])
-
-                if re.fullmatch(r"\d{1,2}", text or ""):
-                    number = text
-
-            # 念のためclassからも探す
-            if not number:
-
-                td = row.select_one(
-                    "td[class*='Umaban']"
-                )
-
-                if td:
-
-                    text = clean(td)
-
-                    m = re.search(
-                        r"\d{1,2}",
-                        text or ""
-                    )
-
-                    if m:
-                        number = m.group(0)
-
-            if not number:
+            if not m:
                 continue
 
-            # -------------------------
-            # 過去5走
-            # -------------------------
+            horse_id = m.group(1)
 
-            past_cells = tds[5:10]
+            races = parse_horse_results(
+                horse_id
+            )
 
-            past = []
-
-            for cell in past_cells:
-
-                text = clean(cell)
-
-                if not text:
-                    continue
-
-                if text in ("-", "—", "---"):
-                    continue
-
-                # --------------------------------
-                # 着順
-                # --------------------------------
-
-                finish = None
-
-                # Data01がある場合は、
-                # そこから着順を取得
-                data01 = cell.select_one(
-                    ".Data01"
-                )
-
-                if data01:
-
-                    data01_text = clean(data01)
-
-                    # 例：
-                    # 2
-                    # 7
-                    # 15
-                    m = re.search(
-                        r"(?<!\d)(\d{1,2})(?!\d)",
-                        data01_text or ""
-                    )
-
-                    if m:
-
-                        try:
-                            finish = int(m.group(1))
-                        except Exception:
-                            pass
-
-                # Data01で取れなかった場合のみ
-                # セル全体から「着順」を探す
-                if finish is None:
-
-                    # 日付を先に除去
-                    tmp = re.sub(
-                        r"\d{4}\.\d{1,2}\.\d{1,2}",
-                        " ",
-                        text
-                    )
-
-                    # 距離・タイムなどを除去
-                    tmp = re.sub(
-                        r"\d+:\d{2}\.\d",
-                        " ",
-                        tmp
-                    )
-
-                    # 最初の単独数字
-                    m = re.search(
-                        r"(?<!\d)(\d{1,2})(?!\d)",
-                        tmp
-                    )
-
-                    if m:
-
-                        try:
-                            value = int(m.group(1))
-
-                            # 着順としてあり得る範囲
-                            if 1 <= value <= 18:
-                                finish = value
-
-                        except Exception:
-                            pass
-
-                # --------------------------------
-                # 距離
-                # --------------------------------
-
-                distance = None
-
-                m = re.search(
-                    r"(?:芝|ダ|障)[^0-9]{0,10}(\d{3,4})m",
-                    text
-                )
-
-                if m:
-
-                    try:
-                        distance = int(m.group(1))
-                    except Exception:
-                        pass
-
-                # --------------------------------
-                # タイム
-                # --------------------------------
-
-                race_time = None
-
-                m = re.search(
-                    r"\d+:\d{2}\.\d",
-                    text
-                )
-
-                if m:
-                    race_time = m.group(0)
-
-                # --------------------------------
-                # 上がり3F
-                # --------------------------------
-
-                last3f = None
-
-                m = re.search(
-                    r"\((\d{2}\.\d)\)",
-                    text
-                )
-
-                if m:
-
-                    try:
-                        last3f = float(m.group(1))
-                    except Exception:
-                        pass
-
-                # --------------------------------
-                # 通過順位
-                # --------------------------------
-
-                passage = None
-
-                passages = re.findall(
-                    r"\d+(?:-\d+){1,3}",
-                    text
-                )
-
-                if passages:
-                    passage = passages[-1]
-
-                # --------------------------------
-                # データ保存
-                # --------------------------------
-
-                past.append({
-                    "text": text,
-                    "finish": finish,
-                    "distance": distance,
-                    "time": race_time,
-                    "last3f": last3f,
-                    "passage": passage
-                })
-
-            if past:
-
-                result[number] = past[:5]
+            if races:
+                result[horse_id] = races
 
     except Exception as e:
-
         print(
             "[parse_past5 error]",
             race_id,
             repr(e)
         )
-
-        return {}
-
-    return result
-
-        rows = table.select("tbody tr")
-        if not rows:
-            rows = table.select("tr")
-
-        for row in rows:
-            tds = row.select("td")
-            if len(tds) < 6:
-                continue
-
-            # 馬番
-            number = None
-
-            for td in tds[:4]:
-                text = clean(td)
-                if re.fullmatch(r"\d{1,2}", text or ""):
-                    number = text
-                    break
-
-            if not number:
-                m = re.search(
-                    r"(?:馬番|Umaban)[^\d]{0,20}(\d{1,2})",
-                    clean(row)
-                )
-                if m:
-                    number = m.group(1)
-
-            if not number:
-                continue
-
-            past = []
-
-            # netkeibaの馬柱では過去走が5列に並ぶ
-            past_cells = tds[5:10]
-
-            for cell in past_cells:
-                text = clean(cell)
-
-                if not text:
-                    continue
-
-                # 空欄・プロフィール情報などは除外
-                if text in ("-", "—", "---"):
-                    continue
-
-                # 着順
-                finish = None
-                m = re.search(r"(?<!\d)(\d{1,2})(?!\d)", text)
-                if m:
-                    try:
-                        finish = int(m.group(1))
-                    except Exception:
-                        pass
-
-                # 距離
-                distance = None
-                m = re.search(r"(?:芝|ダ|障)[^\d]{0,10}(\d{3,4})m", text)
-                if m:
-                    try:
-                        distance = int(m.group(1))
-                    except Exception:
-                        pass
-
-                # タイム
-                race_time = None
-                m = re.search(
-                    r"(?<!\d)(\d+:\d{2}\.\d)(?!\d)",
-                    text
-                )
-                if m:
-                    race_time = m.group(1)
-
-                # 上がり3F
-                last3f = None
-                m = re.search(r"\((\d{2}\.\d)\)", text)
-                if m:
-                    try:
-                        last3f = float(m.group(1))
-                    except Exception:
-                        pass
-
-                past.append({
-                    "text": text,
-                    "finish": finish,
-                    "distance": distance,
-                    "time": race_time,
-                    "last3f": last3f
-                })
-
-            if past:
-                result[number] = past[:5]
-
-    except Exception:
         return {}
 
     return result
