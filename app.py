@@ -359,7 +359,7 @@ def parse_nar_race(race_id):
                     # 騎手候補
                     if not jockey:
                         jockey = cell
-　　　　　　　　odds_value = odds_map.get(int(number)) if str(number).isdigit() else None
+            odds_value = odds_map.get(int(number)) if str(number).isdigit() else None
             
             horses.append({
                 "waku": waku,
@@ -369,7 +369,7 @@ def parse_nar_race(race_id):
                 "jockey": jockey,
                 "trainer": "",
                 "odds": f"{odds_value:g}" if odds_value is not None else "",
-　　　　　　　　　　　"odds_num": odds_value,
+　　             "odds_num": odds_value,
                 "sex_age": sex_age,
                 "weight": weight,
                 "style": "",
