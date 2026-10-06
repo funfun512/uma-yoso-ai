@@ -387,31 +387,42 @@ def parse_nar_past5_race(race_id, horse_names):
 
     current_horse = None
 
-    for row in target_table.select("tr"):
+for row in target_table.select("tr"):
 
-        row_text = clean(row)
+    row_text = clean(row)
 
-        # 現在の馬名を探す
-        for horse_name in horse_names:
-            if horse_name and horse_name in row_text:
-                current_horse = horse_name
-                break
+    current_horse = None
 
-        if not current_horse:
-            continue
+    for horse_name in horse_names:
+        if horse_name and horse_name in row_text:
+            current_horse = horse_name
+            break
 
-        cells = [
-            clean(cell)
-            for cell in row.select("th, td")
-        ]
+    if not current_horse:
+        continue
 
-        past5 = parse_nar_past5(cells)
+    cells = [
+        clean(cell)
+        for cell in row.select("th, td")
+    ]
 
-        if past5:
-            result[current_horse].extend(past5)
+    # まずセル単位で解析
+    past5 = parse_nar_past5(cells)
 
-            if len(result[current_horse]) > 5:
-                result[current_horse] = result[current_horse][:5]
+    # セル分割されている場合に備えて、行全体でも解析
+    if not past5:
+        past5 = parse_nar_past5([row_text])
+
+    if past5:
+        existing = result[current_horse]
+
+        for item in past5:
+            if item.get("raw") not in [
+                x.get("raw") for x in existing
+            ]:
+                existing.append(item)
+
+        result[current_horse] = existing[:5]
 
     return result
     
