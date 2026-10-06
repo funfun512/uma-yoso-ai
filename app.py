@@ -148,7 +148,7 @@ def parse_nar_odds(race_id):
         r = requests.get(
             url,
             params=params,
-            headers=HEADERS,
+            headers=UA,
             timeout=20
         )
         r.raise_for_status()
