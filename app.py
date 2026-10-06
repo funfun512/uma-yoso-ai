@@ -1621,7 +1621,10 @@ def dashboard():
                 "buy_grade": grade,
                 "tags": tags,
                 "score_parts": parts,
-                "reason": "NAR公式で取得できた事実だけで評価。近5走取得: " + str(len(h.get("past5", []))) + "走"
+                "reason": "NAR公式で取得できた事実だけで評価。近5走取得: " + str(len(h.get("past5", []))) + "走 / 頭数: " + ", ".join(
+                    str(r.get("head_count"))
+                    for r in h.get("past5", [])
+                )
             })
 
         horses.sort(
