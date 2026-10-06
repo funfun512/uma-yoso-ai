@@ -29,7 +29,17 @@ CACHE_TTL = int(os.getenv("CACHE_TTL", "45"))
 
 
 def clean(s):
-    return re.sub(r"\s+", " ", s.get_text(" ", strip=True)) if s else ""
+    if not s:
+        return ""
+
+    if isinstance(s, str):
+        return re.sub(r"\s+", " ", s).strip()
+
+    return re.sub(
+        r"\s+",
+        " ",
+        s.get_text(" ", strip=True)
+    )
 
 
 def get(url, params=None, timeout=20):
