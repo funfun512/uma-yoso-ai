@@ -387,7 +387,7 @@ def parse_nar_past5_race(race_id, horse_names):
 
     current_horse = None
 
-for row in target_table.select("tr"):
+    for row in target_table.select("tr"):
 
     row_text = clean(row)
 
