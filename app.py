@@ -404,6 +404,7 @@ def parse_nar_past5_race(race_id, horse_names):
             clean(cell)
             for cell in row.select("th, td")
         ]
+        print("[NAR PAST5 CELLS]", cells)
 
         # まずセル単位で解析
         past5 = parse_nar_past5(cells)
