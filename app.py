@@ -647,53 +647,53 @@ def parse_nar_race(race_id):
             })
 
     # NAR標準出馬表から各馬の前走〜5走前を取得
-horse_names = []
+    horse_names = []
 
-for h in horses:
-    full_name = h.get("name", "")
+    for h in horses:
+        full_name = h.get("name", "")
 
-    if not full_name:
-        continue
+        if not full_name:
+            continue
 
-    # 「馬名 牝 4」「馬名 牡 3」「馬名 セン 5」などから
-    # 本当の馬名部分だけを取り出す
-    m_name = re.match(
-        r"^(.+?)\s+(?:牡|牝|セ|セン)\s*\d+",
-        full_name
+        # 「馬名 牝 4」「馬名 牡 3」「馬名 セン 5」などから
+        # 本当の馬名部分だけを取り出す
+        m_name = re.match(
+            r"^(.+?)\s+(?:牡|牝|セ|セン)\s*\d+",
+            full_name
+        )
+
+        if m_name:
+            horse_names.append(m_name.group(1).strip())
+        else:
+            horse_names.append(full_name.strip())
+
+    past5_map = parse_nar_past5_race(
+        race_id,
+        horse_names
     )
 
-    if m_name:
-        horse_names.append(m_name.group(1).strip())
-    else:
-        horse_names.append(full_name.strip())
+    # 各馬に5走分を接続
+    for horse in horses:
+        full_name = horse.get("name", "")
 
-past5_map = parse_nar_past5_race(
-    race_id,
-    horse_names
-)
+        m_name = re.match(
+            r"^(.+?)\s+(?:牡|牝|セ|セン)\s*\d+",
+            full_name
+        )
 
-# 各馬に5走分を接続
-for horse in horses:
-    full_name = horse.get("name", "")
+        if m_name:
+            name = m_name.group(1).strip()
+        else:
+            name = full_name.strip()
 
-    m_name = re.match(
-        r"^(.+?)\s+(?:牡|牝|セ|セン)\s*\d+",
-        full_name
-    )
+        past5 = past5_map.get(name, [])
 
-    if m_name:
-        name = m_name.group(1).strip()
-    else:
-        name = full_name.strip()
+        if len(past5) > 5:
+            past5 = past5[:5]
 
-    past5 = past5_map.get(name, [])
-
-    if len(past5) > 5:
-        past5 = past5[:5]
-
-    horse["past5"] = past5
-    horse["recent_form_score"] = recent_form_score(
-        past5
+        horse["past5"] = past5
+        horse["recent_form_score"] = recent_form_score(
+            past5
         )
 
     return {
