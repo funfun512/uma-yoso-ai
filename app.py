@@ -588,6 +588,32 @@ def parse_nar_race(race_id):
                 "recent_form_score": recent_score,
             })
 
+    # NAR標準出馬表から各馬の前走〜5走前を取得
+    horse_names = [
+        h["name"]
+        for h in horses
+        if h.get("name")
+    ]
+
+    past5_map = parse_nar_past5_race(
+        race_id,
+        horse_names
+    )
+
+    # 各馬に5走分を接続
+    for horse in horses:
+        name = horse.get("name", "")
+
+        past5 = past5_map.get(name, [])
+
+        if len(past5) > 5:
+            past5 = past5[:5]
+
+        horse["past5"] = past5
+        horse["recent_form_score"] = recent_form_score(
+            past5
+        )
+
     return {
         "title": title,
         "meta_text": meta_text[:5000],
