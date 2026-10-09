@@ -496,6 +496,18 @@ def parse_nar_race(race_id):
     )
 
     meta_text = clean(soup)
+    
+        current_distance = None
+
+    for pattern in [
+        r"(?:ダート|ダ)\s*(\d{3,4})m",
+        r"(?:右|左)(\d{3,4})m",
+    ]:
+        m_distance = re.search(pattern, meta_text)
+
+        if m_distance:
+            current_distance = int(m_distance.group(1))
+            break
 
     title = ""
     for selector in [
@@ -699,8 +711,10 @@ def parse_nar_race(race_id):
     return {
         "title": title,
         "meta_text": meta_text[:5000],
+        "distance": current_distance,
         "horses": horses
     }
+    
 def netkeiba_races(date, venue):
     soup = netkeiba_top(date)
     code = VENUES.get(venue)
@@ -1190,6 +1204,76 @@ def recent_form_score(past5):
         min(20.0, max(0.0, total)),
         1
     )
+    
+def distance_aptitude_score(current_distance, past5):
+    """
+    現在のレース距離に対する適性を10点満点で評価する。
+
+    ・距離の近さ
+    ・その距離帯での着順
+    ・直近の実績をやや重視
+    """
+
+    if not current_distance or not past5:
+        return 0
+
+    weights = [1.0, 0.9, 0.8, 0.7, 0.6]
+
+    total = 0
+    weight_total = 0
+
+    for race, weight in zip(past5[:5], weights):
+
+        distance = race.get("distance")
+        finish = race.get("finish")
+
+        if not isinstance(distance, (int, float)):
+            continue
+
+        diff = abs(distance - current_distance)
+
+        if diff == 0:
+            distance_base = 10.0
+        elif diff <= 100:
+            distance_base = 8.0
+        elif diff <= 200:
+            distance_base = 6.0
+        elif diff <= 300:
+            distance_base = 4.0
+        elif diff <= 400:
+            distance_base = 2.0
+        else:
+            distance_base = 0.0
+
+        # 着順による実績補正
+        if finish is None:
+            finish_factor = 0.7
+        elif finish <= 3:
+            finish_factor = 1.0
+        elif finish <= 5:
+            finish_factor = 0.9
+        elif finish <= 8:
+            finish_factor = 0.75
+        elif finish <= 12:
+            finish_factor = 0.55
+        else:
+            finish_factor = 0.35
+
+        score = distance_base * finish_factor
+
+        total += score * weight
+        weight_total += weight
+
+    if weight_total == 0:
+        return 0
+
+    score = total / weight_total
+
+    return round(
+        min(10.0, max(0.0, score)),
+        1
+    )
+    
 def infer_style(cells):
     t = " ".join(cells)
     for x in ["逃げ", "先行", "差し", "追込"]:
@@ -1671,8 +1755,15 @@ def dashboard():
             bias=same_day_bias(date,venue,race_id)
             speed=parse_speed_index(race_id)
             horses=[]
+            current_distance = parsed.get("distance")
+
             for h in parsed["horses"]:
-                sc,grade,tags,parts=score_horse(h,track,bias)
+            h["distance_score"] = distance_aptitude_score(
+                current_distance,
+                h.get("past5", [])
+            )
+
+            sc, grade, tags, parts = score_horse(
                 horses.append({**h,"score":sc,"buy_grade":grade,"tags":tags,"score_parts":parts,
                                "reason":"取得できた事実だけで評価。未取得項目は加点していません。"})
             horses.sort(key=lambda x:(x["score"], -(x.get("odds_num") or 999)),reverse=True)
