@@ -497,7 +497,7 @@ def parse_nar_race(race_id):
 
     meta_text = clean(soup)
     
-        current_distance = None
+    current_distance = None
 
     for pattern in [
         r"(?:ダート|ダ)\s*(\d{3,4})m",
