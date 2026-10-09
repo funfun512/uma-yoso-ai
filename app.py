@@ -1758,12 +1758,12 @@ def dashboard():
             current_distance = parsed.get("distance")
 
             for h in parsed["horses"]:
-            h["distance_score"] = distance_aptitude_score(
-                current_distance,
-                h.get("past5", [])
-            )
+                h["distance_score"] = distance_aptitude_score(
+                    current_distance,
+                    h.get("past5", [])
+                )
 
-            sc, grade, tags, parts = score_horse(
+                sc, grade, tags, parts = score_horse(
                 horses.append({**h,"score":sc,"buy_grade":grade,"tags":tags,"score_parts":parts,
                                "reason":"取得できた事実だけで評価。未取得項目は加点していません。"})
             horses.sort(key=lambda x:(x["score"], -(x.get("odds_num") or 999)),reverse=True)
