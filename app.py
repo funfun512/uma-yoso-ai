@@ -1670,6 +1670,8 @@ def dashboard():
 
         parsed = parse_nar_race(race_id)
 
+        current_distance = parsed.get("distance")
+
         horses = []
 
         nar_track = {
@@ -1694,6 +1696,11 @@ def dashboard():
         }
 
         for h in parsed["horses"]:
+            h["distance_score"] = distance_aptitude_score(
+                current_distance,
+                h.get("past5", [])
+            )
+
             sc, grade, tags, parts = score_horse(
                 h,
                 nar_track,
