@@ -232,10 +232,57 @@ def nar_jockey_scores(venue, year):
         win_rate = percentages[0]
         quinella_rate = percentages[1]
 
+        # 5着以内率を計算
+        top5_rate = 0.0
+
+        if len(cells) >= 10:
+            try:
+                top5_count = sum(
+                    int(
+                        re.sub(
+                            r"[^\d]",
+                            "",
+                            cells[i]
+                        )
+                    )
+                    for i in range(3, 8)
+                )
+
+                total_count = int(
+                    re.sub(
+                        r"[^\d]",
+                        "",
+                        cells[9]
+                    )
+                )
+
+                if total_count > 0:
+                    top5_rate = (
+                        top5_count
+                        / total_count
+                        * 100
+                    )
+
+            except (ValueError, TypeError):
+                top5_rate = 0.0
+
+        # 騎手8点
+        # 勝率3.5点＋連対率2.5点＋5着以内率2点
         score = (
-            min(4.0, win_rate / 25.0 * 4.0)
+            min(
+                3.5,
+                win_rate / 25.0 * 3.5
+            )
             +
-            min(4.0, quinella_rate / 45.0 * 4.0)
+            min(
+                2.5,
+                quinella_rate / 45.0 * 2.5
+            )
+            +
+            min(
+                2.0,
+                top5_rate / 70.0 * 2.0
+            )
         )
 
         scores[jockey_name] = round(
