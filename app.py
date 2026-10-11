@@ -720,6 +720,173 @@ def parse_nar_past5_race(race_id, horse_names):
 
     return result
     
+def calculate_nar_pace_scores(horses):
+    """
+    NARレース全体の脚質構成から展開を予測し、
+    各馬に「脚質・展開」12点を付与する。
+    """
+
+    if not horses:
+        return
+
+    # ----------------------------------------
+    # ① 脚質ごとの頭数を集計
+    # ----------------------------------------
+    escape_count = sum(
+        1
+        for h in horses
+        if h.get("style") == "逃げ"
+    )
+
+    front_count = sum(
+        1
+        for h in horses
+        if h.get("style") in ("逃げ", "先行")
+    )
+
+    # ----------------------------------------
+    # ② レース展開を判定
+    # ----------------------------------------
+    if (
+        escape_count >= 3
+        or front_count >= 6
+    ):
+        pace = "ハイ"
+
+    elif (
+        escape_count >= 2
+        or front_count >= 4
+    ):
+        pace = "ややハイ"
+
+    elif (
+        escape_count == 0
+        and front_count <= 2
+    ):
+        pace = "スロー"
+
+    else:
+        pace = "平均"
+
+    # ----------------------------------------
+    # ③ 展開ごとの脚質適性
+    #    6点満点
+    # ----------------------------------------
+    pace_fit = {
+        "ハイ": {
+            "逃げ": 1.0,
+            "先行": 3.0,
+            "差し": 5.0,
+            "追込": 6.0,
+        },
+
+        "ややハイ": {
+            "逃げ": 2.0,
+            "先行": 3.5,
+            "差し": 4.5,
+            "追込": 5.0,
+        },
+
+        "平均": {
+            "逃げ": 4.0,
+            "先行": 5.0,
+            "差し": 4.0,
+            "追込": 3.0,
+        },
+
+        "スロー": {
+            "逃げ": 6.0,
+            "先行": 5.5,
+            "差し": 3.0,
+            "追込": 2.0,
+        },
+    }
+
+    # ----------------------------------------
+    # ④ 前の馬が多いかによる隊列補正
+    #    3点満点
+    # ----------------------------------------
+    def field_score(style):
+        if style == "逃げ":
+
+            if escape_count <= 1:
+                return 3.0
+
+            elif escape_count == 2:
+                return 1.5
+
+            else:
+                return 0.0
+
+        if style == "先行":
+
+            if front_count <= 3:
+                return 3.0
+
+            elif front_count == 4:
+                return 2.0
+
+            elif front_count == 5:
+                return 1.0
+
+            else:
+                return 0.0
+
+        if style in ("差し", "追込"):
+
+            if front_count >= 5:
+                return 3.0
+
+            elif front_count == 4:
+                return 2.0
+
+            elif front_count == 3:
+                return 1.0
+
+            else:
+                return 0.0
+
+        return 0.0
+
+    # ----------------------------------------
+    # ⑤ 各馬の12点を計算
+    # ----------------------------------------
+    for horse in horses:
+
+        style = horse.get("style")
+
+        if not style:
+            horse["pace_score"] = 0
+            horse["pace_prediction"] = pace
+            continue
+
+        # 脚質が判定できていること自体を
+        # 最低限の3点として評価
+        style_score = 3.0
+
+        pace_score = pace_fit.get(
+            pace,
+            {}
+        ).get(
+            style,
+            0.0
+        )
+
+        field = field_score(style)
+
+        total = (
+            style_score
+            + pace_score
+            + field
+        )
+
+        horse["pace_score"] = round(
+            min(12.0, max(0.0, total)),
+            1
+        )
+
+        horse["pace_prediction"] = pace
+    
 def parse_nar_race(race_id):
     """
     NAR公式の出馬表から地方競馬の出走馬を取得する。
@@ -966,6 +1133,15 @@ def parse_nar_race(race_id):
             past5
         )
 
+        # 近5走のコーナー通過順から脚質を推定
+        horse["style"] = (
+            infer_style_from_past5(past5)
+            or ""
+        )
+        
+    # レース全体の脚質構成から展開を予測
+    calculate_nar_pace_scores(horses)
+        
     return {
         "title": title,
         "meta_text": meta_text[:5000],
@@ -1788,17 +1964,34 @@ def score_horse(h, track, bias):
 
     # 当日のバイアスとは別に、
     # レースそのものの展開予測を評価
-    if style in ("逃げ", "先行"):
-        if bias.get("stalk", 0) > bias.get("closer", 0):
-            p["脚質・展開"] += 4
-            p["脚質・展開"] = min(12, p["脚質・展開"])
-            tags.append("前有利の展開想定")
+    # 当日バイアスが数値として取得できている場合だけ補正
+    stalk = bias.get("stalk")
+    closer = bias.get("closer")
 
-    elif style in ("差し", "追込"):
-        if bias.get("closer", 0) > bias.get("stalk", 0):
-            p["脚質・展開"] += 4
-            p["脚質・展開"] = min(12, p["脚質・展開"])
-            tags.append("差し有利の展開想定")
+    if (
+        isinstance(stalk, (int, float))
+        and isinstance(closer, (int, float))
+    ):
+
+        if style in ("逃げ", "先行"):
+
+            if stalk > closer:
+                p["脚質・展開"] += 4
+                p["脚質・展開"] = min(
+                    12,
+                    p["脚質・展開"]
+                )
+                tags.append("前有利の展開想定")
+
+        elif style in ("差し", "追込"):
+
+            if closer > stalk:
+                p["脚質・展開"] += 4
+                p["脚質・展開"] = min(
+                    12,
+                    p["脚質・展開"]
+                )
+                tags.append("差し有利の展開想定")
 
     # --------------------------------------------------
     # ⑦ 当日バイアス 8点
