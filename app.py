@@ -1275,6 +1275,59 @@ def distance_aptitude_score(current_distance, past5):
         1
     )
     
+def course_aptitude_score(current_place, past5):
+    """
+    現在の競馬場に対する適性を10点満点で評価する。
+
+    ・同じ競馬場での実績
+    ・その競馬場での着順
+    ・直近の実績をやや重視
+    """
+
+    if not current_place or not past5:
+        return 0
+
+    weights = [1.0, 0.9, 0.8, 0.7, 0.6]
+
+    total = 0
+    weight_total = 0
+
+    for race, weight in zip(past5[:5], weights):
+
+        place = race.get("place")
+        finish = race.get("finish")
+
+        if place != current_place:
+            continue
+
+        if finish is None:
+            finish_factor = 0.7
+        elif finish <= 3:
+            finish_factor = 1.0
+        elif finish <= 5:
+            finish_factor = 0.9
+        elif finish <= 8:
+            finish_factor = 0.75
+        elif finish <= 12:
+            finish_factor = 0.55
+        else:
+            finish_factor = 0.35
+
+        score = 10.0 * finish_factor
+
+        total += score * weight
+        weight_total += weight
+
+    if weight_total == 0:
+        return 0
+
+    score = total / weight_total
+
+    return round(
+        min(10.0, max(0.0, score)),
+        1
+    )
+    
 def infer_style(cells):
     t = " ".join(cells)
     for x in ["逃げ", "先行", "差し", "追込"]:
@@ -1698,6 +1751,10 @@ def dashboard():
         for h in parsed["horses"]:
             h["distance_score"] = distance_aptitude_score(
                 current_distance,
+                h.get("past5", [])
+            )
+            h["course_score"] = course_aptitude_score(
+                venue,
                 h.get("past5", [])
             )
 
