@@ -376,17 +376,47 @@ def parse_nar_odds(race_id):
 def parse_nar_past5(cells):
     """
     NAR公式標準出馬表の前走〜5走前を解析する。
-    「着順 日付...」と「日付...」の両方に対応。
+
+    通過順が
+    ・同じセル内にある場合
+    ・別セルになっている場合
+    の両方に対応する。
     """
+
     results = []
 
+    current_result = None
+
     for cell in cells:
+
         cell = clean(cell)
 
+        if not cell:
+            continue
+
+        # --------------------------------------------------
+        # 通過順
         # 例：
-        # 10 26.09.15 不良 12頭 大井 右1400 9番
-        # または
-        # 26.09.15 不良 12頭 大井 右1400 9番
+        # 6-6-6
+        # 6-6-6-6
+        # --------------------------------------------------
+
+        pm = re.search(
+            r"(?<!\d)(\d{1,2}(?:-\d{1,2}){1,4})(?!\d)",
+            cell
+        )
+
+        if pm and current_result is not None:
+
+            passage = pm.group(1)
+
+            # すでに通過順がなければ設定
+            if not current_result.get("passage"):
+                current_result["passage"] = passage
+
+        # --------------------------------------------------
+        # 日付を含む近走データ
+        # --------------------------------------------------
 
         m = re.match(
             r"^\s*(?:(\d{1,2}|取止|中止)\s+)?"
@@ -399,16 +429,23 @@ def parse_nar_past5(cells):
 
         finish_text, date_text, body = m.groups()
 
+        # --------------------------------------------------
         # 着順
+        # --------------------------------------------------
+
         finish = None
 
         if finish_text and finish_text.isdigit():
+
             value = int(finish_text)
 
             if 1 <= value <= 18:
                 finish = value
 
+        # --------------------------------------------------
         # 距離
+        # --------------------------------------------------
+
         distance = None
 
         dm = re.search(
@@ -419,7 +456,10 @@ def parse_nar_past5(cells):
         if dm:
             distance = int(dm.group(1))
 
+        # --------------------------------------------------
         # 馬場状態
+        # --------------------------------------------------
+
         condition = None
 
         cm = re.search(
@@ -430,7 +470,10 @@ def parse_nar_past5(cells):
         if cm:
             condition = cm.group(1)
 
+        # --------------------------------------------------
         # 頭数
+        # --------------------------------------------------
+
         head_count = None
 
         hm = re.search(
@@ -441,7 +484,10 @@ def parse_nar_past5(cells):
         if hm:
             head_count = int(hm.group(1))
 
+        # --------------------------------------------------
         # 馬番
+        # --------------------------------------------------
+
         horse_number = None
 
         nm = re.search(
@@ -451,19 +497,26 @@ def parse_nar_past5(cells):
 
         if nm:
             horse_number = int(nm.group(1))
-            
+
+        # --------------------------------------------------
         # コーナー通過順
+        # 同じセル内にある場合
+        # --------------------------------------------------
+
         passage = None
 
-        pm = re.search(
-            r"(?<!\d)(\d{1,2}(?:-\d{1,2}){1,3})(?!\d)",
+        pm_body = re.search(
+            r"(?<!\d)(\d{1,2}(?:-\d{1,2}){1,4})(?!\d)",
             body
         )
 
-        if pm:
-            passage = pm.group(1)
+        if pm_body:
+            passage = pm_body.group(1)
 
+        # --------------------------------------------------
         # 競馬場
+        # --------------------------------------------------
+
         place = None
 
         venue_names = [
@@ -494,11 +547,16 @@ def parse_nar_past5(cells):
         ]
 
         for venue_name in venue_names:
+
             if venue_name in body:
                 place = venue_name
                 break
 
-        results.append({
+        # --------------------------------------------------
+        # 近走データを作成
+        # --------------------------------------------------
+
+        current_result = {
             "date": date_text,
             "place": place,
             "finish": finish,
@@ -508,7 +566,13 @@ def parse_nar_past5(cells):
             "horse_number": horse_number,
             "passage": passage,
             "raw": cell
-        })
+        }
+
+        results.append(current_result)
+
+        # --------------------------------------------------
+        # 最大5走
+        # --------------------------------------------------
 
         if len(results) >= 5:
             break
