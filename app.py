@@ -1843,6 +1843,11 @@ def dashboard():
 
         current_distance = parsed.get("distance")
 
+        jockey_scores = nar_jockey_scores(
+            venue,
+            int(date[:4])
+        )
+
         horses = []
 
         nar_track = {
@@ -1867,6 +1872,15 @@ def dashboard():
         }
 
         for h in parsed["horses"]:
+
+            jockey_name = normalize_jockey_name(
+                h.get("jockey", "")
+            )
+
+            h["jockey_score"] = jockey_scores.get(
+                jockey_name
+            )
+
             h["distance_score"] = distance_aptitude_score(
                 current_distance,
                 h.get("past5", [])
