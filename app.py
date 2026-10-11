@@ -451,6 +451,17 @@ def parse_nar_past5(cells):
 
         if nm:
             horse_number = int(nm.group(1))
+            
+        # コーナー通過順
+        passage = None
+
+        pm = re.search(
+            r"(?<!\d)(\d{1,2}(?:-\d{1,2}){1,3})(?!\d)",
+            body
+        )
+
+        if pm:
+            passage = pm.group(1)
 
         # 競馬場
         place = None
@@ -495,6 +506,7 @@ def parse_nar_past5(cells):
             "track_condition": condition,
             "head_count": head_count,
             "horse_number": horse_number,
+            "passage": passage,
             "raw": cell
         })
 
@@ -502,6 +514,86 @@ def parse_nar_past5(cells):
             break
 
     return results
+    
+def classify_passage_style(passage, head_count):
+    """
+    コーナー通過順から1走ごとの脚質を推定する。
+    """
+
+    if not passage:
+        return None
+
+    nums = [
+        int(x)
+        for x in passage.split("-")
+        if x.isdigit()
+    ]
+
+    if not nums:
+        return None
+
+    # 最初のコーナーで先頭なら逃げ
+    if nums[0] == 1:
+        return "逃げ"
+
+    final_position = nums[-1]
+
+    # 最終コーナー4番手以内
+    if final_position <= 4:
+        return "先行"
+
+    # 最終コーナーが出走頭数の2/3以内
+    if head_count and head_count >= 8:
+        if final_position <= head_count * 2 / 3:
+            return "差し"
+
+    return "追込"
+
+
+def infer_style_from_past5(past5):
+    """
+    近5走のコーナー通過順から脚質を推定する。
+    """
+
+    style_counts = {
+        "逃げ": 0,
+        "先行": 0,
+        "差し": 0,
+        "追込": 0,
+    }
+
+    recent_styles = []
+
+    for race in past5[:5]:
+
+        style = classify_passage_style(
+            race.get("passage"),
+            race.get("head_count")
+        )
+
+        if style:
+            style_counts[style] += 1
+            recent_styles.append(style)
+
+    if not recent_styles:
+        return None
+
+    max_count = max(
+        style_counts.values()
+    )
+
+    candidates = [
+        style
+        for style, count in style_counts.items()
+        if count == max_count
+    ]
+
+    # 同数なら直近の走り方を優先
+    for style in recent_styles:
+        if style in candidates:
+            return style
+
+    return candidates[0]
     
 def parse_nar_past5_race(race_id, horse_names):
     """
