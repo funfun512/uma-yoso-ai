@@ -135,6 +135,124 @@ def nar_races(date, venue):
             continue
 
     return found
+    
+def normalize_jockey_name(name):
+    text = clean(name)
+
+    text = re.sub(
+        r"[（(].*?[）)]",
+        "",
+        text
+    )
+
+    text = re.sub(
+        r"[▲△☆★◇]",
+        "",
+        text
+    )
+
+    return re.sub(
+        r"\s+",
+        "",
+        text
+    )
+
+
+def nar_jockey_scores(venue, year):
+    """
+    NAR公式騎手リーディングから騎手評価を取得する。
+    勝率4点＋連対率4点＝8点。
+    """
+
+    if not is_nar_venue(venue):
+        return {}
+
+    baba_code = NAR_VENUES[venue]
+
+    url = (
+        "https://www.keiba.go.jp/"
+        "KeibaWeb/DataRoom/RiderLeading"
+    )
+
+    params = {
+        "k_nenndo": year,
+        "k_out_flag": 1,
+        "k_syozoku": "*",
+        "selectedOption": baba_code,
+    }
+
+    try:
+        soup = BeautifulSoup(
+            get(url, params),
+            "html.parser"
+        )
+    except Exception as e:
+        print(
+            "[NAR JOCKEY ERROR]",
+            repr(e),
+            flush=True
+        )
+        return {}
+
+    scores = {}
+
+    for row in soup.select("tr"):
+
+        cells = [
+            clean(cell)
+            for cell in row.select("th, td")
+        ]
+
+        if len(cells) < 3:
+            continue
+
+        percentages = []
+
+        for cell in cells:
+            m = re.fullmatch(
+                r"(\d+(?:\.\d+)?)%",
+                cell
+            )
+
+            if m:
+                percentages.append(
+                    float(m.group(1))
+                )
+
+        if len(percentages) < 2:
+            continue
+
+        jockey_name = normalize_jockey_name(
+            cells[1]
+        )
+
+        if not jockey_name:
+            continue
+
+        win_rate = percentages[0]
+        quinella_rate = percentages[1]
+
+        score = (
+            min(4.0, win_rate / 25.0 * 4.0)
+            +
+            min(4.0, quinella_rate / 45.0 * 4.0)
+        )
+
+        scores[jockey_name] = round(
+            min(8.0, max(0.0, score)),
+            1
+        )
+
+    print(
+        "[NAR JOCKEY DONE]",
+        venue,
+        "count=",
+        len(scores),
+        flush=True
+    )
+
+    return scores
+    
 def parse_nar_odds(race_id):
     m = re.fullmatch(
         r"nar:(\d{8}):(\d{2}):(\d{2})",
