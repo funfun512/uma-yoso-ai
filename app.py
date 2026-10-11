@@ -500,7 +500,8 @@ def parse_nar_race(race_id):
     current_distance = None
 
     for pattern in [
-        r"(\d{3,4})\s*ダ",
+        r"(?:ダート|ダ)\s*(\d{3,4})",
+        r"(\d{3,4})\s*(?:ダート|ダ)",
         r"(?:右|左)\s*(\d{3,4})",
     ]:
         m_distance = re.search(pattern, meta_text)
